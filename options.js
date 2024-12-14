@@ -54,6 +54,19 @@ function sendMessageToTab(tabId, data) {
   });
 }
 
+function appendAudioData(existingData, newData) {
+  // Create a new array with the combined length
+  const combinedArray = new Int16Array(existingData.length + newData.length);
+  
+  // Copy the existing data
+  combinedArray.set(existingData, 0);
+  
+  // Copy the new data at the end
+  combinedArray.set(newData, existingData.length);
+  
+  return combinedArray;
+}
+
 async function startRecord(option) {
   const stream = await tabCapture();
 
@@ -69,15 +82,27 @@ async function startRecord(option) {
     const context = new AudioContext();
     const mediaStream = context.createMediaStreamSource(stream);
     
-    console.log(mediaStream);
 
     // Create and load the audio worklet
     await context.audioWorklet.addModule('audioProcessor.js');
     const recorder = new AudioWorkletNode(context, 'audio-processor');
     
-    console.log(recorder);
+    let msgCounter = 0;
+
+    // Function to clean up everything
+    const stopRecording = () => {
+      mediaStream.disconnect();
+      recorder.disconnect();
+      context.close();  // Close the AudioContext
+      stream.getTracks().forEach(track => track.stop());  // Stop all tracks in the stream
+      window.close();  // Close the window if needed
+    };
+
+    // Set the timeout to stop recording after 5 seconds
+    // setTimeout(stopRecording, 5000);
 
     recorder.port.onmessage = async (event) => {
+      msgCounter++;
       const inputData = event.data;
       const output = to16kHz(inputData, context.sampleRate);
       const audioData = to16BitPCM(output);
@@ -86,12 +111,8 @@ async function startRecord(option) {
       const newAudioData = new Int16Array(audioData.buffer);
       console.log('newAudioData', newAudioData.slice(0, 10)); // Debug the incoming data
 
-      // Create a new array with combined length
-      const combinedArray = new Int16Array(audioDataCache.length + newAudioData.length);
-      combinedArray.set(audioDataCache); // Copy existing cache
-      combinedArray.set(newAudioData, audioDataCache.length); // Append new data
-      console.log('combinedArray', combinedArray.slice(0, 10));
-      audioDataCache = combinedArray; // Replace cache with combined array
+      // Append new data to cache
+      audioDataCache = appendAudioData(audioDataCache, newAudioData);
 
       if (audioDataCache.length > 1280) {
         console.log('audioDataCache', audioDataCache);
@@ -99,35 +120,45 @@ async function startRecord(option) {
         wav.fromScratch(1, 16000, "16", audioDataCache);
         const wavBlob = new Blob([wav.toBuffer()], { type: "audio/wav" });
           
-        const formData = new FormData();
-        formData.append("file", wavBlob, "audio.wav");
-        formData.append("model", "whisper-1"); // Specify the model you want to use
 
-        const response = await fetch(
-          "https://api.openai.com/v1/audio/transcriptions",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            },
-            body: formData,
-          }
-        );
+        // stop recording
+        // mediaStream.disconnect();
+        // recorder.disconnect();
 
-        const result = await response.json();
-        console.log(result);
+        // const formData = new FormData();
+        // formData.append("file", wavBlob, "audio.wav");
+        // formData.append("model", "whisper-1"); // Specify the model you want to use
+
+        // const response = await fetch(
+        //   "https://api.openai.com/v1/audio/transcriptions",
+        //   {
+        //     method: "POST",
+        //     headers: {
+        //       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        //     },
+        //     body: formData,
+        //   }
+        // );
+
+        // const result = await response.json();
+        // console.log(result);
 
         // You can pass some data to current tab
-        await sendMessageToTab(option.currentTabId, {
-          type: "FROM_OPTION",
-          data: audioDataCache.length,
-        });
+        // await sendMessageToTab(option.currentTabId, {
+        //   type: "FROM_OPTION",
+        //   data: audioDataCache.length,
+        // });
 
-        audioDataCache.length = 0;
+        audioDataCache = new Int16Array();
         
         // Remove the message listener after first execution
-        recorder.port.onmessage = null;
+        // recorder.port.onmessage = null;
       }
+      // stop recording
+      // if (msgCounter > 10) {
+      //   mediaStream.disconnect();
+      //   recorder.disconnect();
+      // }
     };
 
     // Connect nodes
@@ -135,11 +166,6 @@ async function startRecord(option) {
     recorder.connect(context.destination);
     mediaStream.connect(context.destination);
     
-    // Cancel after 5 seconds
-    setTimeout(() => {
-      mediaStream.disconnect();
-      recorder.disconnect();
-    }, 5000);
   } else {
     window.close();
   }

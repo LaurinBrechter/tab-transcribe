@@ -1,3 +1,6 @@
+let activeStream = null;
+let mediaRecorder = null;
+
 function openOptions() {
   return new Promise(async (resolve) => {
     chrome.tabs.create(
@@ -80,13 +83,29 @@ function setStorage(key, value) {
   });
 }
 
-
-
+function stopCapture() {
+  console.log("Stop Capture");
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  if (activeStream) {
+    activeStream.getTracks().forEach(track => track.stop());
+    activeStream = null;
+  }
+}
 
 // https://github.com/apsislabs/chrome_extension_starter
 
 // Instead of using onClicked, you can message from your popup to the background script
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+  if (message.action === "stopRecording") {
+    console.log("Stop Recording");
+    stopCapture();
+    const optionTabId = await getStorage("optionTabId");
+    if (optionTabId) {
+      await removeTab(optionTabId);
+    }
+  }
   if (message.action === "startRecording") {
     const currentTab = await chrome.tabs.query({active: true, currentWindow: true}).then(tabs => tabs[0]);
     console.log("Current Tab", currentTab);
@@ -105,7 +124,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       await setStorage("currentTabId", currentTab.id);
 
       // You can inject code to the current page
-      await executeScript(currentTab.id, "content.js");
+      // await executeScript(currentTab.id, "content.js");
       // await insertCSS(currentTab.id, "content.css");
 
       await sleep(500);
@@ -130,12 +149,24 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   }
 });
 
-chrome.tabs.onRemoved.addListener(async (tabId) => {
-  const currentTabId = await getStorage("currentTabId");
-  const optionTabId = await getStorage("optionTabId");
+// chrome.tabs.onRemoved.addListener(async (tabId) => {
+//   const currentTabId = await getStorage("currentTabId");
+//   const optionTabId = await getStorage("optionTabId");
 
-  // When the current tab is closed, the option tab is also closed by the way
-  if (currentTabId === tabId && optionTabId) {
-    await removeTab(optionTabId);
-  }
-});
+//   // When the current tab is closed
+//   if (currentTabId === tabId) {
+//     stopCapture();
+//     if (optionTabId) {
+//       await removeTab(optionTabId);
+//     }
+//   }
+  
+//   // When the options tab is closed
+//   if (optionTabId === tabId) {
+//     stopCapture();
+//     // Clear the stored optionTabId since it's no longer valid
+//     await setStorage("optionTabId", null);
+//     // Optionally clear the currentTabId as well if you want to reset the recording state completely
+//     await setStorage("currentTabId", null);
+//   }
+// });
