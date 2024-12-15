@@ -89,7 +89,10 @@ async function startRecord(option) {
       audioDataCache = appendAudioData(audioDataCache, audioData);
 
       const currentTime = Date.now();
-      if (currentTime - lastProcessTime >= 5000) { // 5000ms = 5 seconds
+      if (currentTime - lastProcessTime >= 20000) { // 20000ms = 20 seconds
+        const durationInSeconds = audioDataCache.length / 16000;
+        console.log(`Audio length: ${durationInSeconds.toFixed(2)} seconds`);
+        
         // send audioDataCache to background
         console.log(`sending audioDataCache to background at ${new Date().toLocaleString()}`);
         chrome.runtime.sendMessage({
@@ -120,6 +123,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (type) {
     case "START_RECORD":
       startRecord(data);
+      break;
+    case "TRANSCRIBE_RESULT":
+      console.log("TRANSCRIBE_RESULT", data);
+      const div = document.createElement("div");
+      div.innerHTML = JSON.stringify(data);
+      document.getElementById("transcribe-results")?.appendChild(div);
       break;
     default:
       break;

@@ -21,22 +21,33 @@ class PipelineSingleton {
 
     static async getInstance(progress_callback = null) {
         if (this.instance === null) {
-            this.instance = pipeline(this.task, this.model, { progress_callback, quantized:true });
+            this.instance = pipeline(this.task, this.model, { progress_callback, quantized:false });
         }
 
         return this.instance;
     }
 }
 
+let model: any = null;
 
+// Initialize model in an async function
+async function initModel() {
+    model = await PipelineSingleton.getInstance((data) => {
+        // You can track the progress of the pipeline creation here.
+        // e.g., you can send `data` back to the UI to indicate a progress bar
+        console.log('progress', data)
+    });
+}
+
+// Call the initialization function
+initModel().catch(console.error);
 
 const transcribe = async (audioData:Float32Array) => {
   // Get the pipeline instance. This will load and build the model when run for the first time.
-  let model = await PipelineSingleton.getInstance((data) => {
-      // You can track the progress of the pipeline creation here.
-      // e.g., you can send `data` back to the UI to indicate a progress bar
-      console.log('progress', data)
-  });
+  const startTime = new Date().getTime();
+  
+  const endTime = new Date().getTime();
+  console.log(`pipeline created at ${new Date().toLocaleString()}, time taken: ${endTime - startTime}ms`);
 
   // Actually run the model on the input text
   let result = await model(audioData);
@@ -157,6 +168,12 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     const endTime = new Date().getTime();
     console.log(`finished transcription at ${new Date().toLocaleString()}, time taken: ${endTime - startTime}ms`);
     console.log("Transcribe Result", result);
+
+    chrome.runtime.sendMessage({
+      type: "TRANSCRIBE_RESULT",
+      data: result,
+    });
+
   }
   
   if (message.action === "stopRecording") {
