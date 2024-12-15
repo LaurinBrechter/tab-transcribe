@@ -2,7 +2,7 @@ import { WaveFile } from "wavefile";
 
 console.log("options.js loaded");
 
-function tabCapture() {
+function tabCapture(): Promise<MediaStream | null> {
   return new Promise((resolve) => {
     chrome.tabCapture.capture(
       {
@@ -16,35 +16,6 @@ function tabCapture() {
   });
 }
 
-function to16BitPCM(input) {
-  const dataLength = input.length * (16 / 8);
-  const dataBuffer = new ArrayBuffer(dataLength);
-  const dataView = new DataView(dataBuffer);
-  let offset = 0;
-  for (let i = 0; i < input.length; i++, offset += 2) {
-    const s = Math.max(-1, Math.min(1, input[i]));
-    dataView.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  return dataView;
-}
-
-function to16kHz(audioData, sampleRate = 44100) {
-  const data = new Float32Array(audioData);
-  const fitCount = Math.round(data.length * (16000 / sampleRate));
-  const newData = new Float32Array(fitCount);
-  const springFactor = (data.length - 1) / (fitCount - 1);
-  newData[0] = data[0];
-  for (let i = 1; i < fitCount - 1; i++) {
-    const tmp = i * springFactor;
-    const before = Math.floor(tmp).toFixed();
-    const after = Math.ceil(tmp).toFixed();
-    const atPoint = tmp - before;
-    newData[i] = data[before] + (data[after] - data[before]) * atPoint;
-  }
-  newData[fitCount - 1] = data[data.length - 1];
-  return newData;
-}
-
 function sendMessageToTab(tabId, data) {
   return new Promise((resolve) => {
     chrome.tabs.sendMessage(tabId, data, (res) => {
@@ -55,7 +26,7 @@ function sendMessageToTab(tabId, data) {
 
 function appendAudioData(existingData, newData) {
   // Create a new array with the combined length
-  const combinedArray = new Int16Array(existingData.length + newData.length);
+  const combinedArray = new Float32Array(existingData.length + newData.length);
 
   // Copy the existing data
   combinedArray.set(existingData, 0);
@@ -72,12 +43,7 @@ async function startRecord(option) {
   console.log(stream);
 
   if (stream) {
-    // call when the stream inactive
-    stream.oninactive = () => {
-      window.close();
-    };
-
-    let audioDataCache = new Int16Array();
+    let audioDataCache = new Float32Array();
     const context = new AudioContext();
     const mediaStream = context.createMediaStreamSource(stream);
 
@@ -85,38 +51,53 @@ async function startRecord(option) {
     await context.audioWorklet.addModule("audioProcessor.js");
     const recorder = new AudioWorkletNode(context, "audio-processor");
 
-
     let lastProcessTime = Date.now();
 
     recorder.port.onmessage = async (event) => {
       const inputData = event.data;
-      const output = to16kHz(inputData, context.sampleRate);
-      const audioData = to16BitPCM(output);
-      const newAudioData = new Int16Array(audioData.buffer);
+      
+      // Create a new WaveFile instance
+      let wav = new WaveFile();
+      
+      // Format the data as a proper WAV file
+      wav.fromScratch(1,                    // Number of channels
+                      context.sampleRate,    // Sample rate of original audio
+                      '32f',                // Bit depth
+                      inputData);           // Audio data
+      
+      // Convert to desired format
+      wav.toBitDepth('32f');
+      wav.toSampleRate(16000);
+      let audioData = wav.getSamples();
 
-      // Append new data to cache
-      audioDataCache = appendAudioData(audioDataCache, newAudioData);
+      // Handle multi-channel audio
+      if (Array.isArray(audioData)) {
+        if (audioData.length > 1) {
+          const SCALING_FACTOR = Math.sqrt(2);
 
-      const currentTime = Date.now();
-      if (currentTime - lastProcessTime >= 5000) {
-        // 5000ms = 5 seconds
-        console.log("audioDataCache", audioDataCache);
-
-        // Create an AudioBuffer (mono channel, 16kHz sample rate)
-        const audioBuffer = context.createBuffer(
-          1,
-          audioDataCache.length,
-          16000
-        );
-        const channelData = audioBuffer.getChannelData(0);
-
-        // Convert Int16Array to Float32Array (normalized between -1 and 1)
-        for (let i = 0; i < audioDataCache.length; i++) {
-          channelData[i] = audioDataCache[i] / 32768.0; // Divide by 2^15 to normalize
+          // Merge channels (into first channel to save memory)
+          for (let i = 0; i < audioData[0].length; ++i) {
+            audioData[0][i] = SCALING_FACTOR * (audioData[0][i] + audioData[1][i]) / 2;
+          }
         }
 
+        // Select first channel
+        audioData = audioData[0];
+      }
 
-        audioDataCache = new Int16Array();
+      // Append new data to cache
+      audioDataCache = appendAudioData(audioDataCache, audioData);
+
+      const currentTime = Date.now();
+      if (currentTime - lastProcessTime >= 5000) { // 5000ms = 5 seconds
+        // send audioDataCache to background
+        console.log(`sending audioDataCache to background at ${new Date().toLocaleString()}`);
+        chrome.runtime.sendMessage({
+          action: "AUDIO_DATA",
+          data: audioDataCache,
+        });
+
+        audioDataCache = new Float32Array();
         lastProcessTime = currentTime; // Reset the timer
       }
     };

@@ -15,13 +15,13 @@ env.backends.onnx.wasm.numThreads = 1;
 
 
 class PipelineSingleton {
-    static task = 'text-classification';
-    static model = 'Xenova/distilbert-base-uncased-finetuned-sst-2-english';
+    static task = 'automatic-speech-recognition';
+    static model = 'Xenova/whisper-tiny';
     static instance = null;
 
     static async getInstance(progress_callback = null) {
         if (this.instance === null) {
-            this.instance = pipeline(this.task, this.model, { progress_callback });
+            this.instance = pipeline(this.task, this.model, { progress_callback, quantized:true });
         }
 
         return this.instance;
@@ -30,7 +30,7 @@ class PipelineSingleton {
 
 
 
-const classify = async (text) => {
+const transcribe = async (audioData:Float32Array) => {
   // Get the pipeline instance. This will load and build the model when run for the first time.
   let model = await PipelineSingleton.getInstance((data) => {
       // You can track the progress of the pipeline creation here.
@@ -39,7 +39,7 @@ const classify = async (text) => {
   });
 
   // Actually run the model on the input text
-  let result = await model(text);
+  let result = await model(audioData);
   return result;
 };
 
@@ -146,6 +146,17 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   if (message.action === "classify") {
     const result = await classify(message.data.text);
     console.log("Classify Result", result);
+  }
+
+  if (message.action === "AUDIO_DATA") {
+    // Convert object to Float32Array
+    const audioArray = new Float32Array(Object.values(message.data));
+    const startTime = new Date().getTime();
+    console.log(`receiving audio data at ${new Date().toLocaleString()}, starting transcription`);
+    const result = await transcribe(audioArray);
+    const endTime = new Date().getTime();
+    console.log(`finished transcription at ${new Date().toLocaleString()}, time taken: ${endTime - startTime}ms`);
+    console.log("Transcribe Result", result);
   }
   
   if (message.action === "stopRecording") {
