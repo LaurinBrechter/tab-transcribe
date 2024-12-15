@@ -1,6 +1,9 @@
 import { WaveFile } from "wavefile";
 
-console.log("options.js loaded");
+let audioContext: AudioContext | null = null;
+let mediaStreamSource: MediaStreamAudioSourceNode | null = null;
+let recorderNode: AudioWorkletNode | null = null;
+let mediaStream: MediaStream | null = null;
 
 function tabCapture(): Promise<MediaStream | null> {
   return new Promise((resolve) => {
@@ -13,14 +16,6 @@ function tabCapture(): Promise<MediaStream | null> {
         resolve(stream);
       }
     );
-  });
-}
-
-function sendMessageToTab(tabId, data) {
-  return new Promise((resolve) => {
-    chrome.tabs.sendMessage(tabId, data, (res) => {
-      resolve(res);
-    });
   });
 }
 
@@ -37,23 +32,21 @@ function appendAudioData(existingData, newData) {
   return combinedArray;
 }
 
-async function startRecord(option) {
-  const stream = await tabCapture();
+async function startRecord() {
+  mediaStream = await tabCapture();
 
-  console.log(stream);
-
-  if (stream) {
-    let audioDataCache = new Float32Array();
-    const context = new AudioContext();
-    const mediaStream = context.createMediaStreamSource(stream);
+  if (mediaStream) {
+    audioContext = new AudioContext();
+    mediaStreamSource = audioContext.createMediaStreamSource(mediaStream);
 
     // Create and load the audio worklet
-    await context.audioWorklet.addModule("audioProcessor.js");
-    const recorder = new AudioWorkletNode(context, "audio-processor");
-
+    await audioContext.audioWorklet.addModule("audioProcessor.js");
+    recorderNode = new AudioWorkletNode(audioContext, "audio-processor");
+    
+    let audioDataCache = new Float32Array();
     let lastProcessTime = Date.now();
 
-    recorder.port.onmessage = async (event) => {
+    recorderNode.port.onmessage = async (event) => {
       const inputData = event.data;
       
       // Create a new WaveFile instance
@@ -61,7 +54,7 @@ async function startRecord(option) {
       
       // Format the data as a proper WAV file
       wav.fromScratch(1,                    // Number of channels
-                      context.sampleRate,    // Sample rate of original audio
+                      audioContext.sampleRate,    // Sample rate of original audio
                       '32f',                // Bit depth
                       inputData);           // Audio data
       
@@ -89,7 +82,7 @@ async function startRecord(option) {
       audioDataCache = appendAudioData(audioDataCache, audioData);
 
       const currentTime = Date.now();
-      if (currentTime - lastProcessTime >= 20000) { // 20000ms = 20 seconds
+      if (currentTime - lastProcessTime >= 15000) { // 20000ms = 20 seconds
         const durationInSeconds = audioDataCache.length / 16000;
         console.log(`Audio length: ${durationInSeconds.toFixed(2)} seconds`);
         
@@ -97,7 +90,11 @@ async function startRecord(option) {
         console.log(`sending audioDataCache to background at ${new Date().toLocaleString()}`);
         chrome.runtime.sendMessage({
           action: "AUDIO_DATA",
-          data: audioDataCache,
+          data: {
+            audioData: audioDataCache,
+            fromDate: new Date(Date.now() - 20000).toLocaleString(),
+            toDate: new Date().toLocaleString(),
+          }
         });
 
         audioDataCache = new Float32Array();
@@ -106,13 +103,42 @@ async function startRecord(option) {
     };
 
     // Connect nodes
-    mediaStream.connect(recorder);
-    recorder.connect(context.destination);
-    mediaStream.connect(context.destination);
+    mediaStreamSource.connect(recorderNode);
+    recorderNode.connect(audioContext.destination);
+    mediaStreamSource.connect(audioContext.destination);
   } else {
     window.close();
   }
 }
+
+function stopRecord() {
+  if (recorderNode) {
+    recorderNode.disconnect();
+    recorderNode = null;
+  }
+  
+  if (mediaStreamSource) {
+    mediaStreamSource.disconnect();
+    mediaStreamSource = null;
+  }
+
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(track => track.stop());
+    mediaStream = null;
+  }
+
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+}
+
+const stopButton = document.getElementById("stop-record") as HTMLButtonElement;
+stopButton?.addEventListener("click", () => {
+  stopRecord();
+  stopButton.disabled = true;
+});
+
 
 // Receive data from Current Tab or Background
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -122,13 +148,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   switch (type) {
     case "START_RECORD":
-      startRecord(data);
+      console.log("START_RECORD in options.ts", data);
+      startRecord();
+      break;
+    case "STOP_RECORD":
+      console.log("STOP_RECORD in options.ts");
+      stopRecord();
       break;
     case "TRANSCRIBE_RESULT":
       console.log("TRANSCRIBE_RESULT", data);
-      const div = document.createElement("div");
-      div.innerHTML = JSON.stringify(data);
-      document.getElementById("transcribe-results")?.appendChild(div);
+      const li = document.createElement("li");
+      li.innerHTML = data.fromDate + " - " + data.toDate + ": " + data.text;
+      document.getElementById("transcribe-results")?.appendChild(li);
       break;
     default:
       break;

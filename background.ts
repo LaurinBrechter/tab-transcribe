@@ -50,7 +50,7 @@ const transcribe = async (audioData:Float32Array) => {
   console.log(`pipeline created at ${new Date().toLocaleString()}, time taken: ${endTime - startTime}ms`);
 
   // Actually run the model on the input text
-  let result = await model(audioData);
+  let result: {text: string} = await model(audioData);
   return result;
 };
 
@@ -74,34 +74,6 @@ function openOptions() {
 function removeTab(tabId) {
   return new Promise((resolve) => {
     chrome.tabs.remove(tabId).then(resolve).catch(resolve);
-  });
-}
-
-function executeScript(tabId, file) {
-  return new Promise((resolve) => {
-    chrome.scripting.executeScript(
-      {
-        target: { tabId },
-        files: [file],
-      },
-      () => {
-        resolve();
-      }
-    );
-  });
-}
-
-function insertCSS(tabId, file) {
-  return new Promise((resolve) => {
-    chrome.scripting.insertCSS(
-      {
-        target: { tabId },
-        files: [file],
-      },
-      () => {
-        resolve();
-      }
-    );
   });
 }
 
@@ -153,37 +125,34 @@ function stopCapture() {
 
 // Instead of using onClicked, you can message from your popup to the background script
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-  
-  if (message.action === "classify") {
-    const result = await classify(message.data.text);
-    console.log("Classify Result", result);
-  }
 
   if (message.action === "AUDIO_DATA") {
     // Convert object to Float32Array
-    const audioArray = new Float32Array(Object.values(message.data));
+    const audioArray = new Float32Array(Object.values(message.data.audioData));
     const startTime = new Date().getTime();
     console.log(`receiving audio data at ${new Date().toLocaleString()}, starting transcription`);
     const result = await transcribe(audioArray);
+    result.fromDate = message.data.fromDate;
+    result.toDate = message.data.toDate;
     const endTime = new Date().getTime();
     console.log(`finished transcription at ${new Date().toLocaleString()}, time taken: ${endTime - startTime}ms`);
     console.log("Transcribe Result", result);
 
     chrome.runtime.sendMessage({
       type: "TRANSCRIBE_RESULT",
-      data: result,
+      data: result
     });
 
   }
   
-  if (message.action === "stopRecording") {
-    console.log("Stop Recording");
-    stopCapture();
-    const optionTabId = await getStorage("optionTabId");
-    if (optionTabId) {
-      await removeTab(optionTabId);
-    }
-  }
+  // if (message.action === "stopRecording") {
+  //   console.log("Stop Recording");
+  //   stopCapture();
+  //   const optionTabId = await getStorage("optionTabId");
+  //   if (optionTabId) {
+  //     await removeTab(optionTabId);
+  //   }
+  // }
   if (message.action === "startRecording") {
     const currentTab = await chrome.tabs.query({active: true, currentWindow: true}).then(tabs => tabs[0]);
     console.log("Current Tab", currentTab);
