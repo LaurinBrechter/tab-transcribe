@@ -9,7 +9,13 @@ export default defineConfig({
       input: {
         main: 'index.html',
         options: 'options.html',
-        audioProcessor: 'audioProcessor.js'
+        worker: 'src/worker.js',
+        background: 'background.ts'
+      },
+      output: {
+        entryFileNames: (chunkInfo) => {
+          return chunkInfo.name === 'background' ? '[name].js' : '[name]-[hash].js';
+        }
       }
     }
   }

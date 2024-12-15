@@ -1,5 +1,4 @@
-// const WaveFile = require('wavefile');
-import { WaveFile } from 'wavefile';
+import { WaveFile } from "wavefile";
 
 console.log("options.js loaded");
 
@@ -57,13 +56,13 @@ function sendMessageToTab(tabId, data) {
 function appendAudioData(existingData, newData) {
   // Create a new array with the combined length
   const combinedArray = new Int16Array(existingData.length + newData.length);
-  
+
   // Copy the existing data
   combinedArray.set(existingData, 0);
-  
+
   // Copy the new data at the end
   combinedArray.set(newData, existingData.length);
-  
+
   return combinedArray;
 }
 
@@ -81,91 +80,51 @@ async function startRecord(option) {
     let audioDataCache = new Int16Array();
     const context = new AudioContext();
     const mediaStream = context.createMediaStreamSource(stream);
-    
 
     // Create and load the audio worklet
-    await context.audioWorklet.addModule('audioProcessor.js');
-    const recorder = new AudioWorkletNode(context, 'audio-processor');
-    
-    let msgCounter = 0;
+    await context.audioWorklet.addModule("audioProcessor.js");
+    const recorder = new AudioWorkletNode(context, "audio-processor");
 
-    // Function to clean up everything
-    const stopRecording = () => {
-      mediaStream.disconnect();
-      recorder.disconnect();
-      context.close();  // Close the AudioContext
-      stream.getTracks().forEach(track => track.stop());  // Stop all tracks in the stream
-      window.close();  // Close the window if needed
-    };
 
-    // Set the timeout to stop recording after 5 seconds
-    // setTimeout(stopRecording, 5000);
+    let lastProcessTime = Date.now();
 
     recorder.port.onmessage = async (event) => {
-      msgCounter++;
       const inputData = event.data;
       const output = to16kHz(inputData, context.sampleRate);
       const audioData = to16BitPCM(output);
-      console.log('audioData', new Int16Array(audioData.buffer));
-
       const newAudioData = new Int16Array(audioData.buffer);
-      console.log('newAudioData', newAudioData.slice(0, 10)); // Debug the incoming data
 
       // Append new data to cache
       audioDataCache = appendAudioData(audioDataCache, newAudioData);
 
-      if (audioDataCache.length > 1280) {
-        console.log('audioDataCache', audioDataCache);
-        const wav = new WaveFile();
-        wav.fromScratch(1, 16000, "16", audioDataCache);
-        const wavBlob = new Blob([wav.toBuffer()], { type: "audio/wav" });
-          
+      const currentTime = Date.now();
+      if (currentTime - lastProcessTime >= 5000) {
+        // 5000ms = 5 seconds
+        console.log("audioDataCache", audioDataCache);
 
-        // stop recording
-        // mediaStream.disconnect();
-        // recorder.disconnect();
+        // Create an AudioBuffer (mono channel, 16kHz sample rate)
+        const audioBuffer = context.createBuffer(
+          1,
+          audioDataCache.length,
+          16000
+        );
+        const channelData = audioBuffer.getChannelData(0);
 
-        // const formData = new FormData();
-        // formData.append("file", wavBlob, "audio.wav");
-        // formData.append("model", "whisper-1"); // Specify the model you want to use
+        // Convert Int16Array to Float32Array (normalized between -1 and 1)
+        for (let i = 0; i < audioDataCache.length; i++) {
+          channelData[i] = audioDataCache[i] / 32768.0; // Divide by 2^15 to normalize
+        }
 
-        // const response = await fetch(
-        //   "https://api.openai.com/v1/audio/transcriptions",
-        //   {
-        //     method: "POST",
-        //     headers: {
-        //       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        //     },
-        //     body: formData,
-        //   }
-        // );
-
-        // const result = await response.json();
-        // console.log(result);
-
-        // You can pass some data to current tab
-        // await sendMessageToTab(option.currentTabId, {
-        //   type: "FROM_OPTION",
-        //   data: audioDataCache.length,
-        // });
 
         audioDataCache = new Int16Array();
-        
-        // Remove the message listener after first execution
-        // recorder.port.onmessage = null;
+        lastProcessTime = currentTime; // Reset the timer
       }
-      // stop recording
-      // if (msgCounter > 10) {
-      //   mediaStream.disconnect();
-      //   recorder.disconnect();
-      // }
     };
 
     // Connect nodes
     mediaStream.connect(recorder);
     recorder.connect(context.destination);
     mediaStream.connect(context.destination);
-    
   } else {
     window.close();
   }
