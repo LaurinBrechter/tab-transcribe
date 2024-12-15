@@ -1,50 +1,32 @@
-# React + TypeScript + Vite
+# TabTranscribe
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is a chrome extensions that automatically transcribes audio from any tab. All of the transcription happens locally on your computer.
+No data is send to any servers or third parties.
 
-Currently, two official plugins are available:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Installation
 
-## Expanding the ESLint configuration
+This extension is not officially published on the chrome store.
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+## How it works
 
-- Configure the top-level `parserOptions` property like this:
+When starting the transcription, a new tab opens which captures the tab you want to transcribe. The audio data is gathered there and then 
+sent to a background worker that runs the transcription at 20 second time intervals. We use [openai whisper](https://github.com/xenova/whisper-web) for transcription. Because of possible limitations in terms of hardware, whisper tiny was chosen such that the given time frame can be transcribed in the same time or less.
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+## Limitations
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+This extension uses the smallest possible version of the openai whisper model. The transcription accuracy may therefore be worse than other transcription solutions. Despite the small size of the model, the transcription process may use substantial system resources.
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
-```
+## Legal Notice
+
+This extension enables audio/video recording and transcription of Chrome browser tabs. By installing and using this extension, you agree to comply with all applicable laws regarding recording and consent in your jurisdiction. You are responsible for obtaining necessary permissions before recording any content, especially in areas requiring two-party consent. This extension should not be used to record copyrighted material, sensitive personal information, or content prohibited by website terms of service. We recommend reviewing relevant privacy laws and platform policies in your region before use. Use of this extension is at your own risk and discretion.
+
+
+
+
+
+
+
+12/15/2024, 8:30:18 PM - 12/15/2024, 8:30:38 PM: By people who are not having the same traditions, values and skills as the native one population, and their understanding of what they're owed and the role of the American side is very different from the way that people previously had. One of the most tumultuous periods of US politics was actually during the resolution of the immigration question.
+12/15/2024, 8:30:38 PM - 12/15/2024, 8:30:58 PM: we had massive waves of foreign-born population come to the United States. We had them integrated, luckily actually at the time, with the industrial revolution. So we actually did have jobs for them. One of the problems is that today in the United States, we have one of the highest levels of foreign-born population than ever before.
